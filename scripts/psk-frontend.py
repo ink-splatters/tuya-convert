@@ -6,7 +6,6 @@ import ssl
 from binascii import hexlify, unhexlify
 from hashlib import md5
 
-import sslpsk
 from Cryptodome.Cipher import AES
 
 IDENTITY_PREFIX = b"BAohbmd6aG91IFR1"
@@ -50,6 +49,20 @@ class PskFrontend:
         self.sessions = []
         self.hint = b"1dHRsc2NjbHltbGx3eWh5" b"0000000000000000"
 
+        # Create SSLContext for PSK-based TLS
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # Define ciphers for PSK use
+        self.context.set_ciphers("PSK-AES128-CBC-SHA256")
+
+        # Set the PSK callback
+        self.context.set_psk_server_callback(self.psk_callback)
+
+    def psk_callback(self, connection, hint, identity):
+        if identity is None:
+            return None
+        print(f"PSK Identity received: {identity}")
+        return gen_psk(identity.encode(), hint)
+
     def readables(self):
         readables = [self.server_sock]
         for s1, s2 in self.sessions:
@@ -59,25 +72,15 @@ class PskFrontend:
 
     def new_client(self, s1):
         try:
-            ssl_sock = sslpsk.wrap_socket(
-                s1,
-                server_side=True,
-                ssl_version=ssl.PROTOCOL_TLSv1_2,
-                ciphers="PSK-AES128-CBC-SHA256",
-                psk=lambda identity: gen_psk(identity, self.hint),
-                hint=self.hint,
-            )
+            # Wrap the socket using the SSLContext with PSK support
+            ssl_sock = self.context.wrap_socket(s1, server_side=True)
 
             s2 = client(self.host, self.port)
             self.sessions.append((ssl_sock, s2))
         except ssl.SSLError as e:
-            print("could not establish sslpsk socket:", e)
-            if e and (
-                "NO_SHARED_CIPHER" in e.reason
-                or "WRONG_VERSION_NUMBER" in e.reason
-                or "WRONG_SSL_VERSION" in e.reason
-            ):
-                print("don't panic this is probably just your phone!")
+            print("Could not establish PSK-based SSL socket:", e)
+            if e and ("NO_SHARED_CIPHER" in str(e) or "WRONG_VERSION_NUMBER" in str(e)):
+                print("Don't panic, this is probably just your phone!")
         except Exception as e:
             print(e)
 
@@ -85,7 +88,7 @@ class PskFrontend:
         if s == self.server_sock:
             _s, frm = s.accept()
             print(
-                "new client on port %d from %s:%d"
+                "New client on port %d from %s:%d"
                 % (self.listening_port, frm[0], frm[1])
             )
             self.new_client(_s)
