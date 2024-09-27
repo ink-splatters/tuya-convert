@@ -1,15 +1,11 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
-cat <<'EOF'
+set -euo pipefail
 
-These commands are to be normally put in pyproject.toml
-For now run them manually.
+if ! command -v ruff >/dev/null 2>&1; then
+	echo ruff is not installed.
+	exit 1
+fi
 
-for linting checks run:
-    ruff check --select I .
-
-to apply linting fixes and formatting run:
-    ruff check --select I --fix .
-    ruff format
-
-EOF
+ruff check --select I --fix .
+ruff format
